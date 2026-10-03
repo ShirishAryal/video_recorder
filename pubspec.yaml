@@ -1,0 +1,34 @@
+name: video_recorder
+description: "A full-screen video recorder that returns the recorded file, with hints, countdowns, replay, compact bitrates and optional on-device HEVC conversion."
+version: 0.0.1
+homepage:
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  camera: ^0.12.1
+  flutter:
+    sdk: flutter
+  flutter_cache_manager: ^3.4.5
+  video_player: ^2.14.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  camera_platform_interface: ^2.14.0
+  plugin_platform_interface: ^2.1.8
+  video_player_platform_interface: ^6.9.0
+  pigeon: ^29.0.6
+  file: ^7.0.1
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.example.video_recorder
+        pluginClass: VideoRecorderPlugin
+      ios:
+        pluginClass: VideoRecorderPlugin

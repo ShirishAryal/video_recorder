@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>video_recorder Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible+Next:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; diagrams break out to a wider band and scroll sideways on phones. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b2230;
+  --muted: #5a6475;
+  --line: #d5dae3;
+  --accent: #d0263a;        /* the record button */
+  --accent-soft: #fbe4e7;
+  --dart: #2d5fd3;          /* Dart layer */
+  --dart-soft: #e6edfc;
+  --native: #b46a00;        /* native layer */
+  --native-soft: #fbf0de;
+  --ext: #5a6475;           /* third-party plugins */
+  --ext-soft: #eceff4;
+  --ok: #1f7a4d;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #181e28; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c3442;
+    --accent: #ff5468; --accent-soft: #3a1a20;
+    --dart: #7fa4ff; --dart-soft: #1a2640;
+    --native: #f0a63a; --native-soft: #33270f;
+    --ext: #a3acba; --ext-soft: #222a36;
+    --ok: #4cc38a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #181e28; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c3442;
+  --accent: #ff5468; --accent-soft: #3a1a20;
+  --dart: #7fa4ff; --dart-soft: #1a2640;
+  --native: #f0a63a; --native-soft: #33270f;
+  --ext: #a3acba; --ext-soft: #222a36;
+  --ok: #4cc38a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 0 20px;
+}
+main { max-width: 1000px; margin: 0 auto; padding-block: 48px 80px; }
+.prose { max-width: 68ch; }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 1.6rem; font-weight: 700; margin-top: 64px; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; font-weight: 500; }
+p { margin: 12px 0 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--ext-soft); padding: 1px 5px; border-radius: 4px; }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.eyebrow::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.lede { font-size: 1.15rem; color: var(--muted); margin-top: 16px; }
+.usage {
+  margin-top: 24px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+}
+.usage pre { margin: 0; font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.6; }
+.k { color: var(--dart); } .s { color: var(--ok); } .c { color: var(--muted); }
+
+/* Features */
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 24px; }
+.feature { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.feature h3 { display: flex; align-items: center; gap: 8px; }
+.feature ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 0.95rem; }
+.feature li + li { margin-top: 4px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+/* Diagrams */
+.diagram { margin-top: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .t { font-size: 15px; font-weight: 600; }
+svg .st { font-size: 12px; fill: var(--muted); }
+svg .mono { font-family: var(--font-mono); font-size: 12.5px; }
+svg .lbl { font-size: 12px; fill: var(--muted); }
+svg .band-l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; fill: var(--muted); }
+svg .app rect { fill: var(--accent-soft); stroke: var(--accent); }
+svg .dart rect { fill: var(--dart-soft); stroke: var(--dart); }
+svg .ext rect { fill: var(--ext-soft); stroke: var(--ext); }
+svg .nat rect { fill: var(--native-soft); stroke: var(--native); }
+svg .ours rect { stroke-width: 2.5; }
+svg rect { stroke-width: 1.5; }
+svg .band { fill: none; stroke: var(--line); stroke-dasharray: 4 4; }
+svg .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+svg .arrow-a { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+svg .dashed { stroke-dasharray: 5 4; }
+svg .head { fill: var(--muted); }
+svg .head-a { fill: var(--accent); }
+svg .state rect { fill: var(--surface); stroke: var(--fg); }
+svg .state.rec rect { fill: var(--accent-soft); stroke: var(--accent); }
+svg .state.end rect { fill: var(--dart-soft); stroke: var(--dart); }
+svg .lifeline { stroke: var(--line); stroke-width: 2; stroke-dasharray: 6 5; }
+svg .star { fill: var(--native); font-size: 12px; font-weight: 600; }
+
+/* Tables */
+.table-wrap { margin-top: 20px; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+td code { white-space: nowrap; }
+
+.notes { margin-top: 20px; display: grid; gap: 12px; }
+.note { border-left: 3px solid var(--line); padding: 2px 0 2px 14px; color: var(--muted); }
+.note strong { color: var(--fg); }
+.note.warn { border-color: var(--native); }
+
+a { color: var(--dart); }
+:focus-visible { outline: 2px solid var(--dart); outline-offset: 2px; }
+footer { margin-top: 64px; color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="prose">
+    <div class="eyebrow">Flutter plugin · Android &amp; iOS 15+</div>
+    <h1>video_recorder</h1>
+    <p class="lede">A full-screen recorder that hands your app a finished, upload-ready video file, and a player for watching it back from disk or a URL.</p>
+  </header>
+
+  <div class="usage">
+<pre><span class="k">final</span> video = <span class="k">await</span> VideoRecorder.record(context,
+  options: <span class="k">const</span> VideoRecorderOptions(
+    hints: [<span class="s">'Introduce yourself'</span>, <span class="s">'Describe the problem'</span>],
+    maxDuration: Duration(seconds: <span class="s">60</span>),
+    convertToHevc: <span class="k">true</span>,
+  ));
+<span class="k">if</span> (video != <span class="k">null</span>) upload(video); <span class="c">// your app owns the file</span>
+
+RecordedVideoPlayer.network(Uri.parse(url), autoPlay: <span class="k">true</span>);</pre>
+  </div>
+
+  <section>
+    <h2>Features</h2>
+    <div class="features">
+      <div class="feature">
+        <h3><span class="dot" style="background: var(--accent)"></span>Recording</h3>
+        <ul>
+          <li>Record, Stop, Pause / Resume, Restart</li>
+          <li>Switch front and back camera</li>
+          <li>3-2-1 countdown before recording</li>
+          <li>Time limit with a filling ring and countdown</li>
+          <li>Hints to read while speaking, with Previous / Next</li>
+          <li>720p by default; every button has a text label</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <h3><span class="dot" style="background: var(--dart)"></span>Review</h3>
+        <ul>
+          <li>Take plays once, with a scrubbable bar</li>
+          <li>Replay when it ends</li>
+          <li>Re-record discards the take</li>
+          <li>Save returns the file to the app</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <h3><span class="dot" style="background: var(--native)"></span>Output</h3>
+        <ul>
+          <li>Compact bitrates per quality (about 19 MB/min at 720p)</li>
+          <li>Optional on-device HEVC: about 40% smaller</li>
+          <li>Streaming-ready MP4: index moved to the front</li>
+          <li>Always falls back to a working file</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <h3><span class="dot" style="background: var(--ok)"></span>Playback</h3>
+        <ul>
+          <li><code>RecordedVideoPlayer</code> for files and URLs</li>
+          <li>HTTP headers for authenticated videos</li>
+          <li>Buffering spinner, Retry on failure</li>
+          <li>Preloads the next videos in a feed</li>
+          <li>Fits its box; portrait or landscape</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Architecture</h2>
+    <p class="prose">Four public entry points (plus <code>VideoPreloader</code>, which feeds open videos to the player) sit on top of three foundations: the <code>camera</code> plugin for capture, <code>video_player</code> for playback, and the package's own native plugin, reached through Pigeon, for HEVC conversion. Making files streamable is pure Dart, so it needs no native code.</p>
+
+    <div class="diagram" role="img" aria-label="Layer diagram: the app calls four public APIs, which sit on internal Dart code, Flutter plugins, and native Android and iOS frameworks.">
+      <svg viewBox="0 0 960 640" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+          <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head-a"/></marker>
+        </defs>
+
+        <!-- Row A: app -->
+        <g class="app"><rect x="20" y="16" width="920" height="52" rx="10"/></g>
+        <text x="480" y="40" text-anchor="middle" class="t">Your app</text>
+        <text x="480" y="58" text-anchor="middle" class="st">records, uploads, plays back</text>
+
+        <!-- Arrows A -> B -->
+        <path d="M127 68 V122" class="arrow" marker-end="url(#ah)"/>
+        <path d="M362 68 V122" class="arrow" marker-end="url(#ah)"/>
+        <path d="M597 68 V122" class="arrow" marker-end="url(#ah)"/>
+        <path d="M832 68 V122" class="arrow" marker-end="url(#ah)"/>
+
+        <!-- Row B: public API -->
+        <text x="20" y="114" class="band-l">PUBLIC DART API</text>
+        <g class="dart"><rect x="20" y="126" width="215" height="62" rx="8"/></g>
+        <text x="127" y="152" text-anchor="middle" class="mono">VideoRecorder.record</text>
+        <text x="127" y="172" text-anchor="middle" class="st">+ VideoRecorderOptions</text>
+        <g class="dart"><rect x="255" y="126" width="215" height="62" rx="8"/></g>
+        <text x="362" y="152" text-anchor="middle" class="mono">RecordedVideoPlayer</text>
+        <text x="362" y="172" text-anchor="middle" class="st">file · URL · VideoPreloader</text>
+        <g class="dart"><rect x="490" y="126" width="215" height="62" rx="8"/></g>
+        <text x="597" y="152" text-anchor="middle" class="mono">HevcConverter</text>
+        <text x="597" y="172" text-anchor="middle" class="st">convert · progress · cancel</text>
+        <g class="dart"><rect x="725" y="126" width="215" height="62" rx="8"/></g>
+        <text x="832" y="152" text-anchor="middle" class="mono">StreamableMp4</text>
+        <text x="832" y="172" text-anchor="middle" class="st">ensure · isStreamable</text>
+
+        <!-- Arrows B -> C -->
+        <path d="M127 188 V242" class="arrow" marker-end="url(#ah)"/>
+        <path d="M362 188 V242" class="arrow" marker-end="url(#ah)"/>
+        <path d="M597 188 V242" class="arrow" marker-end="url(#ah)"/>
+        <path d="M832 188 V242" class="arrow" marker-end="url(#ah)"/>
+
+        <!-- Row C: internals -->
+        <text x="20" y="234" class="band-l">INTERNAL DART</text>
+        <g class="dart"><rect x="20" y="246" width="215" height="62" rx="8"/></g>
+        <text x="127" y="272" text-anchor="middle" class="mono">VideoRecorderScreen</text>
+        <text x="127" y="292" text-anchor="middle" class="st">state machine · UI</text>
+        <g class="dart"><rect x="255" y="246" width="215" height="62" rx="8"/></g>
+        <text x="362" y="272" text-anchor="middle" class="mono">PlaybackBar</text>
+        <text x="362" y="292" text-anchor="middle" class="st">position · scrub · length</text>
+        <g class="dart"><rect x="490" y="246" width="215" height="62" rx="8"/></g>
+        <text x="597" y="272" text-anchor="middle" class="mono">messages.g.dart</text>
+        <text x="597" y="292" text-anchor="middle" class="st">Pigeon-generated API</text>
+        <g class="dart"><rect x="725" y="246" width="215" height="62" rx="8"/></g>
+        <text x="832" y="272" text-anchor="middle" class="t">MP4 box rewriter</text>
+        <text x="832" y="292" text-anchor="middle" class="st">moov → front · Isolate &gt; 8 MB</text>
+
+        <!-- Screen uses the bar for review; Save uses converter + rewriter -->
+        <path d="M235 277 H251" class="arrow dashed" marker-end="url(#ah)"/>
+        <path d="M190 246 V216 H556 V192" class="arrow-a dashed" marker-end="url(#aha)"/>
+        <path d="M556 216 H791 V192" class="arrow-a dashed" marker-end="url(#aha)"/>
+        <rect x="405" y="207" width="130" height="18" rx="4" style="fill: var(--surface)"/>
+        <text x="470" y="220" text-anchor="middle" class="lbl" style="fill: var(--accent)">on Save</text>
+
+        <!-- Arrows C -> D -->
+        <path d="M70 308 V372" class="arrow" marker-end="url(#ah)"/>
+        <path d="M362 308 V372" class="arrow" marker-end="url(#ah)"/>
+        <path d="M540 308 V372" class="arrow" marker-end="url(#ah)"/>
+        <path d="M880 308 V372" class="arrow" marker-end="url(#ah)"/>
+
+        <!-- Row D: plugins / foundations -->
+        <text x="20" y="366" class="band-l">FLUTTER PLUGINS</text>
+        <g class="ext"><rect x="20" y="376" width="215" height="52" rx="8"/></g>
+        <text x="127" y="398" text-anchor="middle" class="mono">camera</text>
+        <text x="127" y="416" text-anchor="middle" class="st">preview · record · switch</text>
+        <g class="ext"><rect x="255" y="376" width="215" height="52" rx="8"/></g>
+        <text x="362" y="398" text-anchor="middle" class="mono">video_player</text>
+        <text x="362" y="416" text-anchor="middle" class="st">decode · play · stream</text>
+        <g class="dart ours"><rect x="490" y="376" width="215" height="52" rx="8"/></g>
+        <text x="597" y="398" text-anchor="middle" class="t">Pigeon channel</text>
+        <text x="597" y="416" text-anchor="middle" class="st">to this package's native plugin</text>
+        <g class="ext"><rect x="725" y="376" width="215" height="52" rx="8"/></g>
+        <text x="832" y="398" text-anchor="middle" class="mono">dart:io</text>
+        <text x="832" y="416" text-anchor="middle" class="st">no native code needed</text>
+
+        <!-- Arrows D -> E -->
+        <path d="M127 428 V472" class="arrow" marker-end="url(#ah)"/>
+        <path d="M362 428 V472" class="arrow" marker-end="url(#ah)"/>
+        <path d="M597 428 V472" class="arrow" marker-end="url(#ah)"/>
+
+        <!-- Row E: native -->
+        <rect x="14" y="476" width="700" height="72" rx="10" class="band"/>
+        <text x="26" y="494" class="band-l">ANDROID</text>
+        <g class="nat"><rect x="34" y="502" width="186" height="36" rx="6"/></g>
+        <text x="127" y="525" text-anchor="middle" class="mono">CameraX</text>
+        <g class="nat"><rect x="269" y="502" width="186" height="36" rx="6"/></g>
+        <text x="362" y="525" text-anchor="middle" class="mono">ExoPlayer</text>
+        <g class="nat ours"><rect x="504" y="502" width="186" height="36" rx="6"/></g>
+        <text x="597" y="525" text-anchor="middle" class="mono">Media3 Transformer</text>
+
+        <rect x="14" y="558" width="700" height="72" rx="10" class="band"/>
+        <text x="26" y="576" class="band-l">iOS</text>
+        <g class="nat"><rect x="34" y="584" width="186" height="36" rx="6"/></g>
+        <text x="127" y="607" text-anchor="middle" class="mono">AVCaptureSession</text>
+        <g class="nat"><rect x="269" y="584" width="186" height="36" rx="6"/></g>
+        <text x="362" y="607" text-anchor="middle" class="mono">AVPlayer</text>
+        <g class="nat ours"><rect x="504" y="584" width="186" height="36" rx="6"/></g>
+        <text x="597" y="607" text-anchor="middle" class="mono">AVAssetReader/Writer</text>
+
+        <text x="740" y="520" class="star">Bold outline = code in</text>
+        <text x="740" y="538" class="star">this package (Kotlin,</text>
+        <text x="740" y="556" class="star">Swift); the rest comes</text>
+        <text x="740" y="574" class="star">from Flutter and the OS.</text>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background: var(--dart-soft); border-color: var(--dart)"></i>Dart in this package</span>
+      <span><i class="sw" style="background: var(--ext-soft); border-color: var(--ext)"></i>Flutter plugins it depends on</span>
+      <span><i class="sw" style="background: var(--native-soft); border-color: var(--native)"></i>Native frameworks</span>
+      <span><i class="sw" style="background: transparent; border-color: var(--accent); border-style: dashed"></i>Save calls the converter and rewriter</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recorder screen states</h2>
+    <p class="prose"><code>VideoRecorderScreen</code> is a single state machine. Each state shows its own buttons, so the controls can never get into an impossible combination, such as switching cameras mid-recording.</p>
+
+    <div class="diagram" role="img" aria-label="State diagram: initializing, ready, countdown, recording or paused, review, then saved. Cancel, Restart and Re-record lead back to ready.">
+      <svg viewBox="0 0 960 330" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+          <marker id="ah2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head-a"/></marker>
+        </defs>
+
+        <!-- Back edges (drawn first, behind nodes) -->
+        <path d="M700 148 C700 30, 210 30, 210 148" class="arrow-a dashed" marker-end="url(#ah2a)"/>
+        <text x="455" y="48" text-anchor="middle" class="lbl" style="fill: var(--accent)">Re-record</text>
+        <path d="M490 148 C490 70, 230 70, 230 148" class="arrow-a dashed" marker-end="url(#ah2a)"/>
+        <text x="360" y="80" text-anchor="middle" class="lbl" style="fill: var(--accent)">Restart · app goes to background</text>
+        <path d="M350 148 C350 112, 250 112, 250 148" class="arrow-a dashed" marker-end="url(#ah2a)"/>
+        <text x="300" y="114" text-anchor="middle" class="lbl" style="fill: var(--accent)">Cancel</text>
+
+        <!-- Nodes -->
+        <g class="state"><rect x="15" y="148" width="110" height="44" rx="22"/></g>
+        <text x="70" y="175" text-anchor="middle" class="t">Initializing</text>
+        <g class="state"><rect x="155" y="148" width="110" height="44" rx="22"/></g>
+        <text x="210" y="175" text-anchor="middle" class="t">Ready</text>
+        <g class="state"><rect x="295" y="148" width="110" height="44" rx="22"/></g>
+        <text x="350" y="175" text-anchor="middle" class="t">Countdown</text>
+        <g class="state rec"><rect x="435" y="148" width="110" height="44" rx="22"/></g>
+        <text x="490" y="175" text-anchor="middle" class="t">Recording</text>
+        <g class="state"><rect x="645" y="148" width="110" height="44" rx="22"/></g>
+        <text x="700" y="175" text-anchor="middle" class="t">Review</text>
+        <g class="state end"><rect x="825" y="148" width="120" height="44" rx="22"/></g>
+        <text x="885" y="175" text-anchor="middle" class="t">Saved</text>
+        <g class="state rec"><rect x="435" y="258" width="110" height="44" rx="22"/></g>
+        <text x="490" y="285" text-anchor="middle" class="t">Paused</text>
+        <g class="state"><rect x="15" y="258" width="110" height="44" rx="22"/></g>
+        <text x="70" y="285" text-anchor="middle" class="t">Error</text>
+
+        <!-- Forward edges -->
+        <path d="M125 170 H151" class="arrow" marker-end="url(#ah2)"/>
+        <path d="M265 170 H291" class="arrow" marker-end="url(#ah2)"/>
+        <text x="278" y="212" text-anchor="middle" class="lbl">Record</text>
+        <path d="M405 170 H431" class="arrow" marker-end="url(#ah2)"/>
+        <text x="418" y="212" text-anchor="middle" class="lbl">3 · 2 · 1</text>
+        <path d="M545 170 H641" class="arrow" marker-end="url(#ah2)"/>
+        <text x="593" y="162" text-anchor="middle" class="lbl">Stop</text>
+        <text x="593" y="212" text-anchor="middle" class="lbl">or time limit</text>
+        <path d="M755 170 H821" class="arrow" marker-end="url(#ah2)"/>
+        <text x="788" y="162" text-anchor="middle" class="lbl">Save</text>
+        <text x="885" y="212" text-anchor="middle" class="lbl">route pops with XFile</text>
+
+        <path d="M478 192 V254" class="arrow" marker-end="url(#ah2)"/>
+        <path d="M502 258 V196" class="arrow" marker-end="url(#ah2)"/>
+        <text x="470" y="230" text-anchor="end" class="lbl">Pause</text>
+        <text x="512" y="230" class="lbl">Resume</text>
+
+        <path d="M58 192 V254" class="arrow" marker-end="url(#ah2)"/>
+        <path d="M82 258 V196" class="arrow" marker-end="url(#ah2)"/>
+        <text x="50" y="230" text-anchor="end" class="lbl">no camera</text>
+        <text x="92" y="230" class="lbl">Try again</text>
+
+        <text x="350" y="252" text-anchor="middle" class="lbl">Countdown is skipped</text>
+        <text x="350" y="268" text-anchor="middle" class="lbl">when countdownSeconds = 0</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Save pipeline</h2>
+    <p class="prose">Tapping Save runs up to two optional steps before the route closes. Each step can only make the file better: if a step can't help, the previous file passes through unchanged. Intermediate files are deleted, so exactly one file reaches your app.</p>
+
+    <div class="diagram" role="img" aria-label="Pipeline: the recorded take goes through optional HEVC conversion, then optional streamable rewrite, and the resulting file is returned to the app.">
+      <svg viewBox="0 0 960 270" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+        </defs>
+
+        <g class="app"><rect x="20" y="70" width="170" height="80" rx="10"/></g>
+        <text x="105" y="100" text-anchor="middle" class="mono">take.mp4</text>
+        <text x="105" y="120" text-anchor="middle" class="st">H.264 · 2.5 Mbps</text>
+        <text x="105" y="137" text-anchor="middle" class="st">at 720p</text>
+
+        <path d="M190 110 H236" class="arrow" marker-end="url(#ah3)"/>
+
+        <g class="nat ours"><rect x="240" y="70" width="220" height="80" rx="10"/></g>
+        <text x="350" y="100" text-anchor="middle" class="t">HEVC conversion</text>
+        <text x="350" y="120" text-anchor="middle" class="mono" style="fill: var(--muted)">convertToHevc</text>
+        <text x="350" y="137" text-anchor="middle" class="st">off by default · 1.5 Mbps</text>
+        <text x="350" y="56" text-anchor="middle" class="lbl">“Compressing… 42%” · Skip</text>
+
+        <path d="M460 110 H506" class="arrow" marker-end="url(#ah3)"/>
+
+        <g class="dart ours"><rect x="510" y="70" width="220" height="80" rx="10"/></g>
+        <text x="620" y="100" text-anchor="middle" class="t">Streamable rewrite</text>
+        <text x="620" y="120" text-anchor="middle" class="mono" style="fill: var(--muted)">optimizeForStreaming</text>
+        <text x="620" y="137" text-anchor="middle" class="st">on by default · no re-encode</text>
+        <text x="620" y="56" text-anchor="middle" class="lbl">“Saving…” for large files</text>
+
+        <path d="M730 110 H776" class="arrow" marker-end="url(#ah3)"/>
+
+        <g class="state end"><rect x="780" y="70" width="160" height="80" rx="10"/></g>
+        <text x="860" y="100" text-anchor="middle" class="t">XFile</text>
+        <text x="860" y="120" text-anchor="middle" class="st">returned to the app,</text>
+        <text x="860" y="137" text-anchor="middle" class="st">which owns and deletes it</text>
+
+        <text x="240" y="182" class="lbl">Keeps the input if the device has</text>
+        <text x="240" y="198" class="lbl">no HEVC encoder, it fails, the user</text>
+        <text x="240" y="214" class="lbl">skips, or the result isn't smaller.</text>
+        <text x="510" y="182" class="lbl">Keeps the input if the index is</text>
+        <text x="510" y="198" class="lbl">already first (Android camera, HEVC</text>
+        <text x="510" y="214" class="lbl">output) or the file can't be rewritten.</text>
+        <text x="20" y="182" class="lbl">Unsaved takes are</text>
+        <text x="20" y="198" class="lbl">deleted on close.</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Native bridge</h2>
+    <p class="prose">HEVC conversion is the only feature with code of its own on each platform. The API is defined once in <code>pigeons/messages.dart</code>; Pigeon generates type-safe Dart, Kotlin and Swift from it, so a misspelt field is a compile error rather than a runtime surprise.</p>
+
+    <div class="diagram" role="img" aria-label="Sequence: Dart sends convert with a request; native sends progress updates; Dart may send cancel; native replies with a status.">
+      <svg viewBox="0 0 960 300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+        </defs>
+        <g class="dart"><rect x="90" y="16" width="220" height="50" rx="8"/></g>
+        <text x="200" y="38" text-anchor="middle" class="mono">HevcConverter (Dart)</text>
+        <text x="200" y="56" text-anchor="middle" class="st">HevcConverterHostApi client</text>
+        <g class="nat ours"><rect x="650" y="16" width="220" height="50" rx="8"/></g>
+        <text x="760" y="38" text-anchor="middle" class="mono">VideoRecorderPlugin</text>
+        <text x="760" y="56" text-anchor="middle" class="st">Kotlin · Swift</text>
+        <path d="M200 66 V284" class="lifeline"/>
+        <path d="M760 66 V284" class="lifeline"/>
+
+        <path d="M200 104 H754" class="arrow" marker-end="url(#ah4)"/>
+        <text x="480" y="96" text-anchor="middle" class="mono">convert(ConversionRequest)</text>
+        <text x="480" y="122" text-anchor="middle" class="st">id · inputPath · outputPath · bitrate</text>
+
+        <path d="M760 160 H206" class="arrow dashed" marker-end="url(#ah4)"/>
+        <text x="480" y="152" text-anchor="middle" class="mono">onProgress(id, 0.0–1.0)</text>
+        <text x="480" y="178" text-anchor="middle" class="st">every 200 ms on Android, every 0.25 s of video on iOS</text>
+
+        <path d="M200 214 H754" class="arrow dashed" marker-end="url(#ah4)"/>
+        <text x="480" y="206" text-anchor="middle" class="mono">cancel(id)   optional, from Skip</text>
+
+        <path d="M760 262 H206" class="arrow" marker-end="url(#ah4)"/>
+        <text x="480" y="254" text-anchor="middle" class="mono">ConversionReply(status, reason)</text>
+        <text x="480" y="280" text-anchor="middle" class="st">converted · alreadyHevc · unsupported · cancelled, or an error</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Default bitrates</h2>
+    <p class="prose">Phones record at around 10–15 Mbps by default. The package records at rates chosen for someone talking to the camera, and every value can be overridden.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Quality</th><th>Recording</th><th>Per minute</th><th>HEVC conversion</th><th>Per minute</th></tr></thead>
+        <tbody>
+          <tr><td><code>p480</code></td><td class="num">1.2 Mbps</td><td class="num">~9 MB</td><td class="num">0.7 Mbps</td><td class="num">~5 MB</td></tr>
+          <tr><td><code>p720</code> (default)</td><td class="num">2.5 Mbps</td><td class="num">~19 MB</td><td class="num">1.5 Mbps</td><td class="num">~11 MB</td></tr>
+          <tr><td><code>p1080</code></td><td class="num">5 Mbps</td><td class="num">~38 MB</td><td class="num">3 Mbps</td><td class="num">~23 MB</td></tr>
+          <tr><td><code>p2160</code></td><td class="num">16 Mbps</td><td class="num">~120 MB</td><td class="num">10 Mbps</td><td class="num">~75 MB</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where things live</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><code>lib/src/video_recorder.dart</code></td><td>Entry point: pushes the recorder and returns the saved file</td></tr>
+          <tr><td><code>lib/src/video_recorder_options.dart</code></td><td>Every setting, with defaults</td></tr>
+          <tr><td><code>lib/src/video_quality.dart</code></td><td>Resolutions and their default bitrates</td></tr>
+          <tr><td><code>lib/src/video_recorder_screen.dart</code></td><td>The recorder: camera lifecycle, states, countdown, hints, ring, review, Save</td></tr>
+          <tr><td><code>lib/src/recorded_video_player.dart</code></td><td>Player for files and URLs</td></tr>
+          <tr><td><code>lib/src/video_preloader.dart</code></td><td>Opens upcoming feed videos without playing them and lends them to players (part of the player library)</td></tr>
+          <tr><td><code>lib/src/playback_bar.dart</code></td><td>Shared position / scrub / length bar</td></tr>
+          <tr><td><code>lib/src/hevc_converter.dart</code></td><td>HEVC conversion and its fallback rules</td></tr>
+          <tr><td><code>lib/src/streamable_mp4.dart</code></td><td>Pure-Dart MP4 rewriter that moves the index to the front</td></tr>
+          <tr><td><code>pigeons/messages.dart</code></td><td>Source of the Dart ↔ native API; generates <code>*.g.dart</code>, <code>*.g.kt</code>, <code>*.g.swift</code></td></tr>
+          <tr><td><code>android/…/VideoRecorderPlugin.kt</code></td><td>HEVC conversion with Media3 Transformer</td></tr>
+          <tr><td><code>ios/…/VideoRecorderPlugin.swift</code></td><td>HEVC conversion with AVAssetReader/Writer</td></tr>
+          <tr><td><code>example/</code></td><td>Demo app with every option and a swipeable feed (<code>feed_page.dart</code>), plus on-device integration tests</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it's tested</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Suite</th><th>Runs on</th><th>Covers</th></tr></thead>
+        <tbody>
+          <tr><td>Unit and widget tests <span class="mono">(81)</span></td><td>Any machine</td><td>Recorder states and controls, options, converter fallbacks, Pigeon progress routing, player, preloader, MP4 rewriter (real and synthetic files)</td></tr>
+          <tr><td><code>hevc_converter_test</code></td><td>iOS simulator, Android emulator</td><td>Real native HEVC conversion, cancel, already-HEVC detection, streamable output</td></tr>
+          <tr><td><code>recorder_e2e_test</code></td><td>Android emulator (needs a camera)</td><td>Real camera → Save with and without HEVC</td></tr>
+          <tr><td><code>example_app_test</code></td><td>Android emulator (needs a camera)</td><td>Example app: record as HEVC, then play the result</td></tr>
+          <tr><td><code>feed_preload_test</code></td><td>iOS simulator, Android emulator</td><td>Swipes the example feed; the preloaded video starts faster</td></tr>
+          <tr><td><code>network_player_test</code></td><td>iOS simulator, Android emulator</td><td>Streaming a real video from a URL</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Known limits</h2>
+    <div class="notes prose">
+      <div class="note warn"><strong>Not yet tried on physical phones.</strong> Everything above ran on simulators and emulators. iPhone camera recordings in particular haven't been recorded for real, because the simulator has no camera.</div>
+      <div class="note"><strong>HEVC playback.</strong> HEVC files play on iOS, macOS, Safari and almost all Android phones, but not in every desktop browser. That's why <code>convertToHevc</code> is off by default.</div>
+      <div class="note"><strong>Bitrates are targets.</strong> Phones may round them, and some Android devices enforce a minimum bitrate.</div>
+      <div class="note"><strong>Web.</strong> Recording and playback work through the plugins, but HEVC conversion and the streamable rewrite are skipped and return the original file.</div>
+      <div class="note warn"><strong>Preloading uses data.</strong> A paused, preloaded video keeps downloading as far as the platform player decides: in a test with a 60-second, 19 MB clip, about 19 MB on Android and the whole file on iOS. Keep feed clips short and <code>maxIdle</code> small on mobile data.</div>
+    </div>
+  </section>
+
+  <footer>Describes the package as of 2 October 2026.</footer>
+</main>
+</body>
+</html>

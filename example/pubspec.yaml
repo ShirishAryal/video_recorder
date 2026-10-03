@@ -1,0 +1,29 @@
+name: video_recorder_example
+description: "Demonstrates how to use the video_recorder package."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  video_recorder:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
+
+  assets:
+    # A 4-second H.264 clip used by integration_test/hevc_converter_test.dart.
+    - integration_test/assets/sample_h264.mp4
