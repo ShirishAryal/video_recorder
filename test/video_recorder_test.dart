@@ -162,14 +162,14 @@ Future<_HostState> _openRecorder(
 
 /// Also waits out the default 3-second countdown.
 Future<void> _tapRecord(WidgetTester tester) async {
-  await tester.tap(find.text('Record'));
+  await tester.tap(find.bySemanticsLabel('Record'));
   await tester.pump();
   await tester.pump(const Duration(seconds: 3));
   await tester.pump();
 }
 
 Future<void> _tapStop(WidgetTester tester) async {
-  await tester.tap(find.text('Stop'));
+  await tester.tap(find.text('Done'));
   await tester.pumpAndSettle();
 }
 
@@ -260,7 +260,7 @@ void main() {
       tester,
       options: const VideoRecorderOptions(videoBitrate: 2500000),
     );
-    await tester.tap(find.text('Switch'));
+    await tester.tap(find.byTooltip('Switch camera'));
     await tester.pumpAndSettle();
 
     expect(platform.opened.last, _front);
@@ -275,11 +275,11 @@ void main() {
   testWidgets('switch camera flips between back and front', (tester) async {
     await _openRecorder(tester);
 
-    await tester.tap(find.text('Switch'));
+    await tester.tap(find.byTooltip('Switch camera'));
     await tester.pumpAndSettle();
     expect(platform.opened.last, _front);
 
-    await tester.tap(find.text('Switch'));
+    await tester.tap(find.byTooltip('Switch camera'));
     await tester.pumpAndSettle();
     expect(platform.opened.last, _back);
   });
@@ -289,17 +289,17 @@ void main() {
 
     await _tapRecord(tester);
     expect(platform.recordingsStarted, 1);
-    expect(find.text('Switch'), findsNothing);
+    expect(find.byTooltip('Switch camera'), findsNothing);
 
     await _tapStop(tester);
     expect(platform.recordingsStopped, 1);
     expect(player.created.single, endsWith('take_1.mp4'));
     expect(player.playing, hasLength(1));
 
-    await tester.tap(find.text('Pause'));
+    await tester.tap(find.bySemanticsLabel('Pause'));
     await tester.pump();
     expect(player.playing, isEmpty);
-    expect(find.text('Play'), findsOneWidget);
+    expect(find.bySemanticsLabel('Play'), findsOneWidget);
 
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
@@ -455,19 +455,24 @@ void main() {
     });
   });
 
-  testWidgets('every control shows a text label', (tester) async {
+  testWidgets('every control has a label', (tester) async {
     await _openRecorder(tester);
-    expect(find.text('Record'), findsOneWidget);
-    expect(find.text('Switch'), findsOneWidget);
+    expect(find.bySemanticsLabel('Record'), findsOneWidget);
+    expect(find.byTooltip('Switch camera'), findsOneWidget);
+    expect(find.byTooltip('Timer 3s'), findsOneWidget);
+    expect(find.byTooltip('Light off'), findsOneWidget);
+    // Shown but dimmed until there is a take.
+    expect(find.text('Restart'), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget);
 
     await _tapRecord(tester);
     expect(find.text('Restart'), findsOneWidget);
-    expect(find.text('Stop'), findsOneWidget);
-    expect(find.text('Pause'), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget);
+    expect(find.bySemanticsLabel('Pause'), findsOneWidget);
 
     await _tapStop(tester);
     expect(find.text('Re-record'), findsOneWidget);
-    expect(find.text('Pause'), findsOneWidget); // preview is playing
+    expect(find.bySemanticsLabel('Pause'), findsOneWidget); // preview is playing
     expect(find.text('Save'), findsOneWidget);
   });
 
@@ -475,16 +480,16 @@ void main() {
     final host = await _openRecorder(tester);
     await _tapRecord(tester);
 
-    await tester.tap(find.text('Pause'));
+    await tester.tap(find.bySemanticsLabel('Pause'));
     await tester.pump();
     expect(platform.pauses, 1);
-    expect(find.text('Resume'), findsOneWidget);
+    expect(find.bySemanticsLabel('Resume'), findsOneWidget);
     expect(find.textContaining('Paused'), findsOneWidget);
 
-    await tester.tap(find.text('Resume'));
+    await tester.tap(find.bySemanticsLabel('Resume'));
     await tester.pump();
     expect(platform.resumes, 1);
-    expect(find.text('Pause'), findsOneWidget);
+    expect(find.bySemanticsLabel('Pause'), findsOneWidget);
     expect(find.textContaining('Paused'), findsNothing);
 
     await _tapStop(tester);
@@ -496,7 +501,7 @@ void main() {
   testWidgets('stopping while paused still returns the take', (tester) async {
     final host = await _openRecorder(tester);
     await _tapRecord(tester);
-    await tester.tap(find.text('Pause'));
+    await tester.tap(find.bySemanticsLabel('Pause'));
     await tester.pump();
 
     await _tapStop(tester);
@@ -513,46 +518,37 @@ void main() {
       hints: ['Introduce yourself', 'Describe the problem', 'Say thanks'],
     );
 
-    TextButton button(WidgetTester tester, String label) =>
-        tester.widget<TextButton>(find.widgetWithText(TextButton, label));
-
     testWidgets('are not shown when none are passed', (tester) async {
       await _openRecorder(tester);
       expect(find.text('Next'), findsNothing);
-      expect(find.text('Previous'), findsNothing);
     });
 
     testWidgets('sit just above the record button', (tester) async {
       await _openRecorder(tester, options: hints);
 
       final hintBottom = tester.getBottomLeft(find.text('Next')).dy;
-      final recordTop = tester.getTopLeft(find.text('Record')).dy;
+      final recordTop = tester.getTopLeft(find.bySemanticsLabel('Record')).dy;
       final screenMiddle = tester.getSize(find.byType(Scaffold)).height / 2;
 
       expect(hintBottom, lessThan(recordTop));
       expect(hintBottom, greaterThan(screenMiddle));
     });
 
-    testWidgets('step through with next and previous', (tester) async {
+    testWidgets('step through with next', (tester) async {
       await _openRecorder(tester, options: hints);
 
       expect(find.text('Introduce yourself'), findsOneWidget);
-      expect(find.text('1 / 3'), findsOneWidget);
-      expect(button(tester, 'Previous').onPressed, isNull);
+      expect(find.bySemanticsLabel('Hint 1 of 3'), findsOneWidget);
 
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
       expect(find.text('Describe the problem'), findsOneWidget);
-      expect(find.text('2 / 3'), findsOneWidget);
+      expect(find.bySemanticsLabel('Hint 2 of 3'), findsOneWidget);
 
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
       expect(find.text('Say thanks'), findsOneWidget);
-      expect(button(tester, 'Next').onPressed, isNull);
-
-      await tester.tap(find.text('Previous'));
-      await tester.pumpAndSettle();
-      expect(find.text('Describe the problem'), findsOneWidget);
+      expect(find.text('Next'), findsNothing);
     });
 
     testWidgets('swipe moves between hints', (tester) async {
@@ -564,7 +560,7 @@ void main() {
         1000,
       );
       await tester.pumpAndSettle();
-      expect(find.text('2 / 3'), findsOneWidget);
+      expect(find.bySemanticsLabel('Hint 2 of 3'), findsOneWidget);
 
       await tester.fling(
         find.text('Describe the problem'),
@@ -572,7 +568,7 @@ void main() {
         1000,
       );
       await tester.pumpAndSettle();
-      expect(find.text('1 / 3'), findsOneWidget);
+      expect(find.bySemanticsLabel('Hint 1 of 3'), findsOneWidget);
     });
 
     testWidgets('can be changed while recording and hide in review', (
@@ -600,7 +596,7 @@ void main() {
       await tester.tap(find.text('Restart'));
       await tester.pumpAndSettle();
       expect(find.text('Introduce yourself'), findsOneWidget);
-      expect(find.text('1 / 3'), findsOneWidget);
+      expect(find.bySemanticsLabel('Hint 1 of 3'), findsOneWidget);
     });
   });
 
@@ -612,7 +608,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(platform.recordingsStopped, 1);
-    expect(find.text('Record'), findsOneWidget);
+    expect(find.bySemanticsLabel('Record'), findsOneWidget);
 
     await _tapRecord(tester);
     await _tapStop(tester);
@@ -642,14 +638,14 @@ void main() {
 
       player.finish(player.playing.single);
       await tester.pumpAndSettle();
-      expect(find.text('Replay'), findsOneWidget);
-      expect(find.text('Pause'), findsNothing);
+      expect(find.bySemanticsLabel('Replay'), findsOneWidget);
+      expect(find.bySemanticsLabel('Pause'), findsNothing);
 
-      await tester.tap(find.text('Replay'));
+      await tester.tap(find.bySemanticsLabel('Replay'));
       await tester.pumpAndSettle();
       expect(player.seeks.last, Duration.zero);
       expect(player.playing, hasLength(1));
-      expect(find.text('Pause'), findsOneWidget);
+      expect(find.bySemanticsLabel('Pause'), findsOneWidget);
     });
 
     testWidgets('tapping the video also replays a finished take', (
@@ -675,7 +671,7 @@ void main() {
     await _tapStop(tester);
     await tester.tap(find.text('Re-record'));
     await tester.pumpAndSettle();
-    expect(find.text('Record'), findsOneWidget);
+    expect(find.bySemanticsLabel('Record'), findsOneWidget);
     expect(find.text('Save'), findsNothing);
 
     await _tapRecord(tester);
@@ -686,37 +682,35 @@ void main() {
     expect(host.result?.path, endsWith('/take_2.mp4'));
   });
 
-  testWidgets('counts down the time left when maxDuration is set', (
-    tester,
-  ) async {
+  testWidgets('shows elapsed time against maxDuration', (tester) async {
     await _openRecorder(
       tester,
       options: const VideoRecorderOptions(maxDuration: Duration(seconds: 60)),
     );
-    expect(find.text('01:00 left'), findsOneWidget);
+    expect(find.text('00:00 / 01:00'), findsOneWidget);
 
     await _tapRecord(tester);
-    expect(find.text('01:00 left'), findsOneWidget);
+    expect(find.text('00:00 / 01:00'), findsOneWidget);
 
-    await tester.tap(find.text('Pause'));
+    await tester.tap(find.bySemanticsLabel('Pause'));
     await tester.pump();
-    expect(find.text('Paused · 01:00 left'), findsOneWidget);
+    expect(find.text('Paused · 00:00 / 01:00'), findsOneWidget);
 
-    // The finished take shows its length, not time left.
+    // The finished take shows its length instead.
     await _tapStop(tester);
-    expect(find.textContaining('left'), findsNothing);
+    expect(find.textContaining(' / '), findsNothing);
     expect(find.text('00:00'), findsOneWidget);
   });
 
   group('3-2-1 countdown', () {
     testWidgets('counts 3, 2, 1 then starts recording', (tester) async {
       await _openRecorder(tester);
-      await tester.tap(find.text('Record'));
+      await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump();
 
       expect(find.text('3'), findsOneWidget);
-      expect(find.text('Cancel'), findsOneWidget);
-      expect(find.text('Switch'), findsNothing);
+      expect(find.bySemanticsLabel('Cancel'), findsOneWidget);
+      expect(find.byTooltip('Switch camera'), findsNothing);
       expect(platform.recordingsStarted, 0);
 
       await tester.pump(const Duration(seconds: 1));
@@ -728,18 +722,18 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
       expect(platform.recordingsStarted, 1);
-      expect(find.text('Stop'), findsOneWidget);
+      expect(find.text('Done'), findsOneWidget);
       expect(find.text('1'), findsNothing);
     });
 
     testWidgets('cancel stops the countdown', (tester) async {
       await _openRecorder(tester);
-      await tester.tap(find.text('Record'));
+      await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump(const Duration(seconds: 1));
 
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.bySemanticsLabel('Cancel'));
       await tester.pump();
-      expect(find.text('Record'), findsOneWidget);
+      expect(find.bySemanticsLabel('Record'), findsOneWidget);
       expect(find.text('2'), findsNothing);
 
       await tester.pump(const Duration(seconds: 5));
@@ -751,7 +745,7 @@ void main() {
         tester,
         options: const VideoRecorderOptions(countdownSeconds: 5),
       );
-      await tester.tap(find.text('Record'));
+      await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump();
       expect(find.text('5'), findsOneWidget);
 
@@ -767,10 +761,10 @@ void main() {
         tester,
         options: const VideoRecorderOptions(countdownSeconds: 0),
       );
-      await tester.tap(find.text('Record'));
+      await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump();
       expect(platform.recordingsStarted, 1);
-      expect(find.text('Cancel'), findsNothing);
+      expect(find.bySemanticsLabel('Cancel'), findsNothing);
     });
 
     testWidgets('hints stay visible during the countdown', (tester) async {
@@ -778,17 +772,17 @@ void main() {
         tester,
         options: const VideoRecorderOptions(hints: ['Introduce yourself']),
       );
-      await tester.tap(find.text('Record'));
+      await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump();
       expect(find.text('Introduce yourself'), findsOneWidget);
     });
 
     testWidgets('closing during the countdown returns null', (tester) async {
       final host = await _openRecorder(tester);
-      await tester.tap(find.text('Record'));
+      await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Close'));
+      await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
       expect(host.returned, isTrue);
       expect(host.result, isNull);
@@ -814,7 +808,7 @@ void main() {
       expect(ring, findsOneWidget);
 
       // Pausing stops the ring's animation, so the screen can settle.
-      await tester.tap(find.text('Pause'));
+      await tester.tap(find.bySemanticsLabel('Pause'));
       await tester.pumpAndSettle();
       expect(ring, findsOneWidget);
     });
@@ -828,11 +822,34 @@ void main() {
 
   testWidgets('counts up when there is no maxDuration', (tester) async {
     await _openRecorder(tester);
-    expect(find.text('00:00'), findsNothing);
+    expect(find.text('00:00'), findsOneWidget);
 
     await _tapRecord(tester);
     expect(find.text('00:00'), findsOneWidget);
-    expect(find.textContaining('left'), findsNothing);
+    expect(find.textContaining(' / '), findsNothing);
+  });
+
+  testWidgets('the timer tool turns the countdown off', (tester) async {
+    await _openRecorder(tester);
+    await tester.tap(find.byTooltip('Timer 3s'));
+    await tester.pump();
+    expect(find.byTooltip('Timer off'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('Record'));
+    await tester.pump();
+    expect(platform.recordingsStarted, 1);
+    expect(find.bySemanticsLabel('Cancel'), findsNothing);
+  });
+
+  testWidgets('the light is offered for the back camera only', (
+    tester,
+  ) async {
+    await _openRecorder(tester);
+    expect(find.byTooltip('Light off'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Switch camera'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Light off'), findsNothing);
   });
 
   testWidgets('stops automatically at maxDuration', (tester) async {
@@ -852,7 +869,7 @@ void main() {
   testWidgets('closing without saving returns null', (tester) async {
     final host = await _openRecorder(tester);
 
-    await tester.tap(find.byTooltip('Close'));
+    await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
 
     expect(host.returned, isTrue);

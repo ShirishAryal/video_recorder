@@ -5,23 +5,27 @@ recording and preview, and returns the recorded file to your app.
 
 ## Features
 
-- **Capture**: start and stop recording, with a running timer. A 3-2-1
-  countdown runs before recording starts (configurable, or off), and can be
-  cancelled.
-- **Pause / resume**: pause a recording and carry on in the same file.
+- **Capture**: tap the big button to start recording and **Done** to stop,
+  with a running timer. A 3-2-1 countdown runs before recording starts
+  (configurable, can be turned off with the timer tool, and can be
+  cancelled).
+- **Pause / resume**: while recording, the big button pauses and resumes, and
+  the take carries on in the same file.
 - **Restart**: throw away the take while recording and start over.
 - **Review and replay**: after stopping, the take plays back once so the user
   can check it, with a scrubbable progress bar, Play / Pause, and Replay
   when it ends.
 - **Re-record**: not happy with the take? Discard it and record again.
 - **Save**: return the take to the app.
-- **Switch camera**: flip between the back and front cameras before recording.
+- **Camera tools**: a tray on the right edge switches between the back and
+  front cameras, turns the countdown on or off, and turns the light (torch)
+  on the back camera on or off. Its chevron shows or hides their labels.
 - **Hints**: pass a list of messages (talking points, questions, a script)
-  to show just above the record button. The user moves through them with Previous / Next or by
-  swiping, including while recording.
-- Every button has a text label underneath (Record, Stop, Pause, Resume,
-  Restart, Switch, Play, Replay, Re-record, Save), which screen readers also
-  announce.
+  to show just above the record button, numbered, with a **Next** button.
+  The user can also swipe between them, including while recording.
+- Every control has a label that screen readers announce. Restart, Done,
+  Re-record and Save show theirs under the icon; the big button's
+  (Record, Pause, Resume, Cancel, Play, Replay) is announced only.
 - 720p by default. 480p, 1080p and 2160p are also available.
 - Optional audio.
 - Compact files by default: 720p records at 2.5 Mbps (about 3 MB per 10
@@ -31,8 +35,8 @@ recording and preview, and returns the recorded file to your app.
   to HEVC/H.265 on the device before returning it, typically 30–40% smaller
   at the same quality, so your server doesn't have to.
 - Optional time limit (`maxDuration`): a ring around the record button fills
-  up as time runs out, the timer counts down the time left, and recording
-  stops automatically at 00:00.
+  up as time runs out, the timer shows elapsed time against the limit
+  (00:12 / 00:45), and recording stops automatically at the limit.
 
 Supported on Android and iOS 15+, and on the web without HEVC conversion
 (through the [`camera`](https://pub.dev/packages/camera) plugin).

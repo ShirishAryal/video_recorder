@@ -47,17 +47,18 @@ void main() {
     const noCamera = 'No camera was found on this device.';
     await pumpUntil(
       tester,
-      () => found(find.text('Record')) || found(find.text(noCamera)),
+      () =>
+          found(find.bySemanticsLabel('Record')) || found(find.text(noCamera)),
     );
     if (found(find.text(noCamera))) {
       markTestSkipped('No camera on this device (e.g. the iOS simulator).');
       return;
     }
 
-    await tester.tap(find.text('Record'));
-    await pumpUntil(tester, () => found(find.text('Stop')));
+    await tester.tap(find.bySemanticsLabel('Record'));
+    await pumpUntil(tester, () => found(find.bySemanticsLabel('Pause')));
     await tester.pump(const Duration(seconds: 3));
-    await tester.tap(find.text('Stop'));
+    await tester.tap(find.text('Done'));
     await pumpUntil(tester, () => found(find.text('Save')));
     await tester.tap(find.text('Save'));
 

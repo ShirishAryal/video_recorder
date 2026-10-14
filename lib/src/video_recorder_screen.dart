@@ -15,6 +15,9 @@ import 'video_recorder_options.dart';
 
 enum _Stage { initializing, ready, countdown, recording, review, error }
 
+const _accent = Color(0xFFF7931E);
+const _recordRed = Color(0xFFF2364F);
+
 /// Pops its route with the saved [XFile]. Most apps should use
 /// `VideoRecorder.record` rather than pushing this directly.
 class VideoRecorderScreen extends StatefulWidget {
@@ -50,6 +53,10 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
   bool _optimizing = false;
   bool get _finishing => _compressing || _optimizing;
   int _hintIndex = 0;
+
+  late bool _countdownOn = widget.options.countdownSeconds > 0;
+  bool _torchOn = false;
+  bool _toolsExpanded = false;
 
   final Stopwatch _stopwatch = Stopwatch();
   Timer? _ticker;
@@ -90,6 +97,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
       // camera that is still initializing alone.
       if (controller == null || !controller.value.isInitialized) return;
       _controller = null;
+      _torchOn = false;
       _player?.pause();
       if (_stage == _Stage.countdown) _cancelCountdown();
       if (controller.value.isRecordingVideo) {
@@ -172,7 +180,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
 
   void _onRecordPressed() {
     if (_stage != _Stage.ready) return;
-    final seconds = widget.options.countdownSeconds;
+    final seconds = _countdownOn ? widget.options.countdownSeconds : 0;
     if (seconds <= 0) {
       _startRecording();
       return;
@@ -246,6 +254,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     if (controller == null || _stage != _Stage.recording) return;
     await _run(() async {
       final take = await _finishRecording(controller);
+      await _turnTorchOff(controller);
       final player = await _createPlayer(take);
       if (!mounted) {
         await player?.dispose();
@@ -347,10 +356,32 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     final next = _nextCamera(current);
     if (next == null) return;
     await _run(() async {
+      await _turnTorchOff(controller);
       await controller.setDescription(next);
       setState(() => _camera = next);
     });
   }
+
+  Future<void> _toggleTorch() async {
+    final controller = _controller;
+    if (controller == null) return;
+    await _run(() async {
+      await controller.setFlashMode(_torchOn ? FlashMode.off : FlashMode.torch);
+      setState(() => _torchOn = !_torchOn);
+    });
+  }
+
+  Future<void> _turnTorchOff(CameraController controller) async {
+    if (!_torchOn) return;
+    _torchOn = false;
+    try {
+      await controller.setFlashMode(FlashMode.off);
+    } on CameraException {
+      // The light goes out with the camera anyway.
+    }
+  }
+
+  void _toggleCountdown() => setState(() => _countdownOn = !_countdownOn);
 
   void _showHint(int index) {
     if (index < 0 || index >= widget.options.hints.length) return;
@@ -454,26 +485,52 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
     File(file.path).delete().ignore();
   }
 
+  /// Elapsed time, followed by the limit if there is one.
   String? _timerText() {
-    final max = widget.options.maxDuration;
-    return switch (_stage) {
-      _Stage.ready || _Stage.countdown || _Stage.recording when max != null =>
-        '${formatDuration(_remaining(max))} left',
-      _Stage.recording => formatDuration(_stopwatch.elapsed),
-      _ => null,
-    };
+    if (_stage case _Stage.ready || _Stage.countdown || _Stage.recording) {
+      final elapsed = formatDuration(_stopwatch.elapsed);
+      final max = widget.options.maxDuration;
+      return max == null ? elapsed : '$elapsed / ${formatDuration(max)}';
+    }
+    return null;
   }
 
-  /// Rounds up so the countdown starts on the full limit and reaches 00:00
-  /// as recording stops.
-  Duration _remaining(Duration max) {
-    final left = max - _stopwatch.elapsed;
-    if (left <= Duration.zero) return Duration.zero;
-    return Duration(seconds: (left.inMilliseconds / 1000).ceil());
+  List<_Tool> _tools() {
+    final ready = _stage == _Stage.ready && !_busy && _controller != null;
+    final live =
+        _stage == _Stage.ready ||
+        _stage == _Stage.countdown ||
+        _stage == _Stage.recording;
+    if (!live || _controller == null) return const [];
+    final seconds = widget.options.countdownSeconds;
+    return [
+      if (ready && _cameras.length > 1)
+        _Tool(
+          icon: Icons.cameraswitch_outlined,
+          label: 'Switch camera',
+          onPressed: _switchCamera,
+        ),
+      if (ready && seconds > 0)
+        _Tool(
+          icon: _countdownOn ? Icons.timer_outlined : Icons.timer_off_outlined,
+          label: _countdownOn ? 'Timer ${seconds}s' : 'Timer off',
+          active: _countdownOn,
+          onPressed: _toggleCountdown,
+        ),
+      // Front cameras rarely have a light.
+      if (_camera?.lensDirection == CameraLensDirection.back)
+        _Tool(
+          icon: _torchOn ? Icons.lightbulb : Icons.lightbulb_outline,
+          label: _torchOn ? 'Light on' : 'Light off',
+          active: _torchOn,
+          onPressed: _busy ? null : _toggleTorch,
+        ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
+    final tools = _tools();
     return PopScope(
       canPop: !_busy && !_finishing,
       child: Scaffold(
@@ -506,13 +563,24 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
                       : () => Navigator.of(context).maybePop(),
                   timerText: _timerText(),
                   paused: _paused,
-                  recording: _stage == _Stage.recording && !_paused,
                 ),
               ),
               if (_stage == _Stage.countdown)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: _CountdownOverlay(seconds: _countdownLeft),
+                  ),
+                ),
+              if (tools.isNotEmpty && !_finishing)
+                Positioned.fill(
+                  child: Align(
+                    alignment: const Alignment(1, 0.15),
+                    child: _ToolTray(
+                      tools: tools,
+                      expanded: _toolsExpanded,
+                      onToggle: () =>
+                          setState(() => _toolsExpanded = !_toolsExpanded),
+                    ),
                   ),
                 ),
               if (_compressing)
@@ -527,45 +595,56 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
                 const Positioned.fill(child: _SavingOverlay(label: 'Saving…'))
               else if (_stage != _Stage.error)
                 Positioned(
-                  bottom: 24,
+                  bottom: 0,
                   left: 0,
                   right: 0,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (widget.options.hints.isNotEmpty &&
-                          (_stage == _Stage.ready ||
-                              _stage == _Stage.countdown ||
-                              _stage == _Stage.recording))
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          child: _HintCard(
-                            hints: widget.options.hints,
-                            index: _hintIndex,
-                            onChanged: _showHint,
-                          ),
-                        ),
-                      if (_stage == _Stage.review && _player != null)
-                        PlaybackBar(player: _player!),
-                      _Controls(
-                        stage: _stage,
-                        enabled: !_busy && _controller != null,
-                        busy: _busy,
-                        paused: _paused,
-                        canSwitchCamera: _cameras.length > 1,
-                        maxDuration: widget.options.maxDuration,
-                        stopwatch: _stopwatch,
-                        player: _player,
-                        onRecord: _onRecordPressed,
-                        onCancelCountdown: _cancelCountdown,
-                        onSwitchCamera: _switchCamera,
-                        onRestart: _restart,
-                        onStop: _stopRecording,
-                        onTogglePause: _togglePause,
-                        onTogglePlayback: _togglePlayback,
-                        onSave: _save,
+                  child: DecoratedBox(
+                    // Keeps the white controls readable over bright scenes.
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black54],
                       ),
-                    ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 24, bottom: 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.options.hints.isNotEmpty &&
+                              (_stage == _Stage.ready ||
+                                  _stage == _Stage.countdown ||
+                                  _stage == _Stage.recording))
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                              child: _HintCard(
+                                hints: widget.options.hints,
+                                index: _hintIndex,
+                                onChanged: _showHint,
+                              ),
+                            ),
+                          if (_stage == _Stage.review && _player != null)
+                            PlaybackBar(player: _player!),
+                          _Controls(
+                            stage: _stage,
+                            enabled: !_busy && _controller != null,
+                            busy: _busy,
+                            paused: _paused,
+                            maxDuration: widget.options.maxDuration,
+                            stopwatch: _stopwatch,
+                            player: _player,
+                            onRecord: _onRecordPressed,
+                            onCancelCountdown: _cancelCountdown,
+                            onRestart: _restart,
+                            onStop: _stopRecording,
+                            onTogglePause: _togglePause,
+                            onTogglePlayback: _togglePlayback,
+                            onSave: _save,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -648,13 +727,11 @@ class _TopBar extends StatelessWidget {
     required this.onClose,
     required this.timerText,
     required this.paused,
-    required this.recording,
   });
 
   final VoidCallback? onClose;
   final String? timerText;
   final bool paused;
-  final bool recording;
 
   @override
   Widget build(BuildContext context) {
@@ -664,19 +741,16 @@ class _TopBar extends StatelessWidget {
         children: [
           IconButton(
             onPressed: onClose,
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.arrow_back),
             color: Colors.white,
-            tooltip: 'Close',
+            tooltip: 'Back',
           ),
           Expanded(
             child: Center(
               child: switch (timerText) {
                 final text? => FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: _ElapsedBadge(
-                    text: paused ? 'Paused · $text' : text,
-                    recording: recording,
-                  ),
+                  child: _ElapsedBadge(text: paused ? 'Paused · $text' : text),
                 ),
                 null => const SizedBox.shrink(),
               },
@@ -689,20 +763,19 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-/// The row of buttons along the bottom, which depends on the stage.
+/// Restart, the big capture button and Done, whose actions depend on the
+/// stage. Restart and Done stay in place, dimmed, until they can be used.
 class _Controls extends StatelessWidget {
   const _Controls({
     required this.stage,
     required this.enabled,
     required this.busy,
     required this.paused,
-    required this.canSwitchCamera,
     required this.maxDuration,
     required this.stopwatch,
     required this.player,
     required this.onRecord,
     required this.onCancelCountdown,
-    required this.onSwitchCamera,
     required this.onRestart,
     required this.onStop,
     required this.onTogglePause,
@@ -714,13 +787,11 @@ class _Controls extends StatelessWidget {
   final bool enabled;
   final bool busy;
   final bool paused;
-  final bool canSwitchCamera;
   final Duration? maxDuration;
   final Stopwatch stopwatch;
   final VideoPlayerController? player;
   final VoidCallback onRecord;
   final VoidCallback onCancelCountdown;
-  final VoidCallback onSwitchCamera;
   final VoidCallback onRestart;
   final VoidCallback onStop;
   final VoidCallback onTogglePause;
@@ -729,6 +800,16 @@ class _Controls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const restartIdle = _SideAction(
+      icon: Icons.refresh,
+      label: 'Restart',
+      onPressed: null,
+    );
+    const doneIdle = _SideAction(
+      icon: Icons.check,
+      label: 'Done',
+      onPressed: null,
+    );
     final (Widget left, Widget center, Widget right) = switch (stage) {
       _Stage.initializing || _Stage.error => (
         const SizedBox.shrink(),
@@ -736,96 +817,91 @@ class _Controls extends StatelessWidget {
         const SizedBox.shrink(),
       ),
       _Stage.ready => (
-        const SizedBox.shrink(),
+        restartIdle,
         _CaptureButton(
-          recording: false,
+          label: 'Record',
           onPressed: enabled ? onRecord : null,
           limit: maxDuration,
           stopwatch: stopwatch,
         ),
-        canSwitchCamera
-            ? _RoundButton(
-                icon: Icons.cameraswitch,
-                label: 'Switch',
-                onPressed: enabled ? onSwitchCamera : null,
-              )
-            : const SizedBox.shrink(),
+        doneIdle,
       ),
       _Stage.countdown => (
-        const SizedBox.shrink(),
+        restartIdle,
         _CaptureButton(
-          recording: false,
           label: 'Cancel',
+          icon: Icons.close,
           onPressed: onCancelCountdown,
           limit: maxDuration,
           stopwatch: stopwatch,
         ),
-        const SizedBox.shrink(),
+        doneIdle,
       ),
       _Stage.recording => (
-        _RoundButton(
-          icon: Icons.restart_alt,
+        _SideAction(
+          icon: Icons.refresh,
           label: 'Restart',
           onPressed: enabled ? onRestart : null,
         ),
         _CaptureButton(
-          recording: true,
-          onPressed: enabled ? onStop : null,
+          label: paused ? 'Resume' : 'Pause',
+          icon: paused ? null : Icons.pause,
+          onPressed: enabled ? onTogglePause : null,
           limit: maxDuration,
           stopwatch: stopwatch,
           ticking: !paused,
         ),
-        _RoundButton(
-          icon: paused ? Icons.fiber_manual_record : Icons.pause,
-          label: paused ? 'Resume' : 'Pause',
-          onPressed: enabled ? onTogglePause : null,
+        _SideAction(
+          icon: Icons.check,
+          label: 'Done',
+          onPressed: enabled ? onStop : null,
         ),
       ),
       _Stage.review => (
-        _RoundButton(
-          icon: Icons.restart_alt,
+        _SideAction(
+          icon: Icons.refresh,
           label: 'Re-record',
           onPressed: busy ? null : onRestart,
         ),
         switch (player?.value) {
           null => const SizedBox.shrink(),
-          VideoPlayerValue(isPlaying: true) => _RoundButton(
-            icon: Icons.pause,
+          VideoPlayerValue(isPlaying: true) => _CaptureButton.playback(
             label: 'Pause',
+            icon: Icons.pause,
             onPressed: onTogglePlayback,
           ),
-          VideoPlayerValue(isCompleted: true) => _RoundButton(
-            icon: Icons.replay,
+          VideoPlayerValue(isCompleted: true) => _CaptureButton.playback(
             label: 'Replay',
+            icon: Icons.replay,
             onPressed: onTogglePlayback,
           ),
-          _ => _RoundButton(
-            icon: Icons.play_arrow,
+          _ => _CaptureButton.playback(
             label: 'Play',
+            icon: Icons.play_arrow,
             onPressed: onTogglePlayback,
           ),
         },
-        _RoundButton(
+        _SideAction(
           icon: Icons.check,
           label: 'Save',
           onPressed: busy ? null : onSave,
-          filled: true,
         ),
       ),
     };
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(child: Center(child: left)),
-        Expanded(child: Center(child: center)),
+        center,
         Expanded(child: Center(child: right)),
       ],
     );
   }
 }
 
-/// Screen readers announce the visible label, so both say the same word.
+/// Screen readers announce [label]; sighted users see it only if [child]
+/// shows it.
 class _LabeledControl extends StatelessWidget {
   const _LabeledControl({
     required this.label,
@@ -848,72 +924,105 @@ class _LabeledControl extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onPressed,
-        child: Opacity(
-          opacity: onPressed == null ? 0.4 : 1,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              child,
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  shadows: [Shadow(blurRadius: 4)],
-                ),
+        child: Opacity(opacity: onPressed == null ? 0.4 : 1, child: child),
+      ),
+    );
+  }
+}
+
+/// A plain icon with its label underneath, either side of the capture
+/// button.
+class _SideAction extends StatelessWidget {
+  const _SideAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  static const _shadows = [Shadow(blurRadius: 4)];
+
+  @override
+  Widget build(BuildContext context) {
+    return _LabeledControl(
+      label: label,
+      onPressed: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 28, color: Colors.white, shadows: _shadows),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                shadows: _shadows,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
+/// The big round button in the middle. Its label is only announced, not
+/// shown.
 class _CaptureButton extends StatelessWidget {
   const _CaptureButton({
-    required this.recording,
+    required this.label,
     required this.onPressed,
     required this.stopwatch,
-    this.label,
+    this.icon,
     this.limit,
     this.ticking = false,
-  });
+  }) : fill = _recordRed;
 
-  final bool recording;
+  const _CaptureButton.playback({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  }) : fill = Colors.white24,
+       stopwatch = null,
+       limit = null,
+       ticking = false;
+
+  final String label;
   final VoidCallback? onPressed;
-
-  final String? label;
+  final IconData? icon;
+  final Color fill;
 
   final Duration? limit;
-  final Stopwatch stopwatch;
+  final Stopwatch? stopwatch;
 
   final bool ticking;
 
   @override
   Widget build(BuildContext context) {
     Widget button = Container(
-      width: 76,
-      height: 76,
+      width: 80,
+      height: 80,
+      padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 4),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 12)],
       ),
-      alignment: Alignment.center,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: recording ? 28 : 60,
-        height: recording ? 28 : 60,
-        decoration: BoxDecoration(
-          color: Colors.red,
-          borderRadius: BorderRadius.circular(recording ? 6 : 30),
-        ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+        child: Icon(icon, size: 32, color: Colors.white),
       ),
     );
     final limit = this.limit;
-    if (limit != null) {
+    final stopwatch = this.stopwatch;
+    if (limit != null && stopwatch != null) {
       button = _CountdownRing(
         limit: limit,
         stopwatch: stopwatch,
@@ -921,16 +1030,10 @@ class _CaptureButton extends StatelessWidget {
         child: button,
       );
     }
-    return _LabeledControl(
-      label: label ?? (recording ? 'Stop' : 'Record'),
-      onPressed: onPressed,
-      child: button,
-    );
+    return _LabeledControl(label: label, onPressed: onPressed, child: button);
   }
 }
 
-/// Repaints itself every frame while [ticking], so the ring moves smoothly
-/// without rebuilding the rest of the screen.
 class _CountdownRing extends StatefulWidget {
   const _CountdownRing({
     required this.limit,
@@ -1012,7 +1115,7 @@ class _RingPainter extends CustomPainter {
         -math.pi / 2,
         2 * math.pi * progress,
         false,
-        paint..color = Colors.red,
+        paint..color = _recordRed,
       );
     }
   }
@@ -1022,35 +1125,99 @@ class _RingPainter extends CustomPainter {
       oldDelegate.progress != progress;
 }
 
-class _RoundButton extends StatelessWidget {
-  const _RoundButton({
+class _Tool {
+  const _Tool({
     required this.icon,
     required this.label,
     required this.onPressed,
-    this.filled = false,
+    this.active = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
-  final bool filled;
+
+  /// Highlighted, for a setting that is switched on.
+  final bool active;
+}
+
+/// Camera settings down the right edge. The chevron shows or hides their
+/// labels.
+class _ToolTray extends StatelessWidget {
+  const _ToolTray({
+    required this.tools,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  final List<_Tool> tools;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
-    return _LabeledControl(
-      label: label,
-      onPressed: onPressed,
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: filled ? Colors.white : Colors.white24,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          onPressed: onToggle,
+          icon: Icon(expanded ? Icons.chevron_right : Icons.chevron_left),
+          color: Colors.white,
+          tooltip: expanded ? 'Hide labels' : 'Show labels',
         ),
-        child: Icon(
-          icon,
-          size: 28,
-          color: filled ? Colors.black : Colors.white,
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          decoration: const BoxDecoration(
+            color: Colors.black45,
+            borderRadius: BorderRadius.horizontal(left: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final tool in tools)
+                _ToolButton(tool: tool, expanded: expanded),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ToolButton extends StatelessWidget {
+  const _ToolButton({required this.tool, required this.expanded});
+
+  final _Tool tool;
+  final bool expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = tool.active ? _accent : Colors.white;
+    return Tooltip(
+      message: tool.label,
+      child: _LabeledControl(
+        label: tool.label,
+        onPressed: tool.onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (expanded) ...[
+                Text(
+                  tool.label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Icon(tool.icon, size: 24, color: color),
+            ],
+          ),
         ),
       ),
     );
@@ -1079,80 +1246,87 @@ class _HintCard extends StatelessWidget {
         if (velocity > 200 && hasPrevious) onChanged(index - 1);
       },
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.black54,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Row(
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 160),
-              child: SingleChildScrollView(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: Text(
-                    hints[index],
-                    key: ValueKey(index),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      height: 1.3,
+            Semantics(
+              liveRegion: true,
+              label: 'Hint ${index + 1} of ${hints.length}',
+              excludeSemantics: true,
+              child: _HintNumber(number: index + 1),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 160),
+                child: SingleChildScrollView(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: AlignmentDirectional.centerStart,
+                      children: [...previous, ?current],
+                    ),
+                    child: Text(
+                      hints[index],
+                      key: ValueKey(index),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: Semantics(
-                    liveRegion: true,
-                    label: 'Hint ${index + 1} of ${hints.length}',
-                    excludeSemantics: true,
-                    child: Text(
-                      '${index + 1} / ${hints.length}',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white70),
-                    ),
+            if (hasNext) ...[
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: () => onChanged(index + 1),
+                icon: const Icon(Icons.arrow_forward),
+                iconAlignment: IconAlignment.end,
+                label: const Text('Next'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _accent,
+                  foregroundColor: Colors.white,
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
                 ),
-                // Shrinks the buttons rather than overflowing on narrow
-                // screens or with large system text.
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextButton.icon(
-                        onPressed: hasPrevious
-                            ? () => onChanged(index - 1)
-                            : null,
-                        icon: const Icon(Icons.chevron_left),
-                        label: const Text('Previous'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          disabledForegroundColor: Colors.white38,
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: hasNext ? () => onChanged(index + 1) : null,
-                        icon: const Icon(Icons.chevron_right),
-                        iconAlignment: IconAlignment.end,
-                        label: const Text('Next'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          disabledForegroundColor: Colors.white38,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HintNumber extends StatelessWidget {
+  const _HintNumber({required this.number});
+
+  final int number;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 26,
+      height: 26,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(color: _accent, shape: BoxShape.circle),
+      child: Text(
+        '$number',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -1244,25 +1418,40 @@ class _SavingOverlay extends StatelessWidget {
 }
 
 class _ElapsedBadge extends StatelessWidget {
-  const _ElapsedBadge({required this.text, required this.recording});
+  const _ElapsedBadge({required this.text});
 
   final String text;
-  final bool recording;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: recording ? Colors.red : Colors.black54,
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: _recordRed,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     );
   }

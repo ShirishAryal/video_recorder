@@ -62,10 +62,10 @@ void main() {
       return null;
     }
 
-    await tester.tap(find.text('Record'));
-    await pumpUntilFound(tester, find.text('Stop'));
+    await tester.tap(find.bySemanticsLabel('Record'));
+    await pumpUntilFound(tester, find.bySemanticsLabel('Pause'));
     await tester.pump(const Duration(seconds: 3));
-    await tester.tap(find.text('Stop'));
+    await tester.tap(find.text('Done'));
 
     await pumpUntilFound(tester, find.text('Save'));
     await tester.tap(find.text('Save'));
