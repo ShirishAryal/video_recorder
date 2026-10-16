@@ -39,10 +39,19 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   bool _convertToHevc = false;
 
   static const _hints = [
-    'Say your name and what you do.',
-    'Describe the problem you ran into.',
-    'Explain what you expected to happen.',
-    'Thank the viewer and wrap up.',
+    RecorderHint(
+      'Introduce yourself',
+      description: 'Say your name and what you do.',
+    ),
+    RecorderHint(
+      'Describe the problem',
+      description: 'Walk through what you ran into, step by step.',
+    ),
+    RecorderHint(
+      'What did you expect?',
+      description: 'Explain what you expected to happen instead.',
+    ),
+    RecorderHint('Wrap up', description: 'Thank the viewer and finish.'),
   ];
 
   XFile? _video;

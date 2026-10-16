@@ -37,7 +37,7 @@ class VideoRecorderOptions {
   final Duration? maxDuration;
 
   /// Shown one at a time; the user steps through them while recording.
-  final List<String> hints;
+  final List<RecorderHint> hints;
 
   /// `0` starts recording as soon as Record is tapped.
   final int countdownSeconds;
@@ -62,4 +62,13 @@ class VideoRecorderOptions {
   /// Moves the MP4 index to the front on Save, so the uploaded video can
   /// start playing before it has fully downloaded. No re-encoding.
   final bool optimizeForStreaming;
+}
+
+/// A prompt shown while recording: a short [title] with an optional, longer
+/// [description] under it.
+class RecorderHint {
+  const RecorderHint(this.title, {this.description});
+
+  final String title;
+  final String? description;
 }

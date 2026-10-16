@@ -472,7 +472,10 @@ void main() {
 
     await _tapStop(tester);
     expect(find.text('Re-record'), findsOneWidget);
-    expect(find.bySemanticsLabel('Pause'), findsOneWidget); // preview is playing
+    expect(
+      find.bySemanticsLabel('Pause'),
+      findsOneWidget,
+    ); // preview is playing
     expect(find.text('Save'), findsOneWidget);
   });
 
@@ -515,7 +518,14 @@ void main() {
 
   group('hints', () {
     const hints = VideoRecorderOptions(
-      hints: ['Introduce yourself', 'Describe the problem', 'Say thanks'],
+      hints: [
+        RecorderHint(
+          'Introduce yourself',
+          description: 'Say your name and what you do.',
+        ),
+        RecorderHint('Describe the problem'),
+        RecorderHint('Say thanks'),
+      ],
     );
 
     testWidgets('are not shown when none are passed', (tester) async {
@@ -534,10 +544,22 @@ void main() {
       expect(hintBottom, greaterThan(screenMiddle));
     });
 
+    testWidgets('next sits at the right end of the card', (tester) async {
+      await _openRecorder(tester, options: hints);
+
+      final nextRight = tester.getTopRight(find.text('Next')).dx;
+      final titleLeft = tester.getTopLeft(find.text('Introduce yourself')).dx;
+      final screenWidth = tester.getSize(find.byType(Scaffold)).width;
+
+      expect(nextRight, greaterThan(screenWidth * 0.75));
+      expect(nextRight, greaterThan(titleLeft));
+    });
+
     testWidgets('step through with next', (tester) async {
       await _openRecorder(tester, options: hints);
 
       expect(find.text('Introduce yourself'), findsOneWidget);
+      expect(find.text('Say your name and what you do.'), findsOneWidget);
       expect(find.bySemanticsLabel('Hint 1 of 3'), findsOneWidget);
 
       await tester.tap(find.text('Next'));
@@ -770,7 +792,9 @@ void main() {
     testWidgets('hints stay visible during the countdown', (tester) async {
       await _openRecorder(
         tester,
-        options: const VideoRecorderOptions(hints: ['Introduce yourself']),
+        options: const VideoRecorderOptions(
+          hints: [RecorderHint('Introduce yourself')],
+        ),
       );
       await tester.tap(find.bySemanticsLabel('Record'));
       await tester.pump();
@@ -841,9 +865,7 @@ void main() {
     expect(find.bySemanticsLabel('Cancel'), findsNothing);
   });
 
-  testWidgets('the light is offered for the back camera only', (
-    tester,
-  ) async {
+  testWidgets('the light is offered for the back camera only', (tester) async {
     await _openRecorder(tester);
     expect(find.byTooltip('Light off'), findsOneWidget);
 

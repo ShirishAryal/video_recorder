@@ -4,7 +4,7 @@
 * Text labels under every control.
 * 3-2-1 countdown before recording starts (`countdownSeconds`, default 3, 0 to turn off), with Cancel.
 * Review screen plays the take once, with a scrubbable progress bar, Replay when it ends, and Re-record to discard it and record again.
-* Optional `hints`: messages the user steps through with Previous / Next while recording.
+* Optional `hints`: `RecorderHint`s (a title and optional description) the user steps through with Next or a swipe while recording.
 * Returns the saved video as an `XFile`, or `null` if the user closes without saving.
 * Records at 720p by default; 480p, 1080p and 2160p are also available.
 * Optional audio.

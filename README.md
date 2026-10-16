@@ -88,9 +88,12 @@ final video = await VideoRecorder.record(
     videoBitrate: 2500000,                        // bits/s; default: per quality
     audioBitrate: 128000,                         // bits/s; default: device
     hints: [                                      // default: none
-      'Introduce yourself',
-      'Describe the problem',
-      'Say thanks',
+      RecorderHint(
+        'Introduce yourself',
+        description: 'Say your name and what you do.',
+      ),
+      RecorderHint('Describe the problem'),       // description is optional
+      RecorderHint('Say thanks'),
     ],
   ),
 );

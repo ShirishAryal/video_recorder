@@ -574,7 +574,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
               if (tools.isNotEmpty && !_finishing)
                 Positioned.fill(
                   child: Align(
-                    alignment: const Alignment(1, 0.15),
+                    alignment: const Alignment(1, -0.25),
                     child: _ToolTray(
                       tools: tools,
                       expanded: _toolsExpanded,
@@ -617,7 +617,7 @@ class _VideoRecorderScreenState extends State<VideoRecorderScreen>
                                   _stage == _Stage.countdown ||
                                   _stage == _Stage.recording))
                             Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                              padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
                               child: _HintCard(
                                 hints: widget.options.hints,
                                 index: _hintIndex,
@@ -1231,7 +1231,7 @@ class _HintCard extends StatelessWidget {
     required this.onChanged,
   });
 
-  final List<String> hints;
+  final List<RecorderHint> hints;
   final int index;
   final ValueChanged<int> onChanged;
 
@@ -1246,20 +1246,15 @@ class _HintCard extends StatelessWidget {
         if (velocity > 200 && hasPrevious) onChanged(index - 1);
       },
       child: Container(
-        padding: const EdgeInsets.all(12),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
         decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(12),
+          color: Colors.black38,
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Semantics(
-              liveRegion: true,
-              label: 'Hint ${index + 1} of ${hints.length}',
-              excludeSemantics: true,
-              child: _HintNumber(number: index + 1),
-            ),
-            const SizedBox(width: 12),
             Expanded(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 160),
@@ -1267,44 +1262,100 @@ class _HintCard extends StatelessWidget {
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
                     layoutBuilder: (current, previous) => Stack(
-                      alignment: AlignmentDirectional.centerStart,
+                      alignment: AlignmentDirectional.topStart,
                       children: [...previous, ?current],
                     ),
-                    child: Text(
-                      hints[index],
+                    child: _HintContent(
                       key: ValueKey(index),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
-                      ),
+                      hint: hints[index],
+                      number: index + 1,
+                      total: hints.length,
                     ),
                   ),
                 ),
               ),
             ),
             if (hasNext) ...[
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               FilledButton.icon(
                 onPressed: () => onChanged(index + 1),
-                icon: const Icon(Icons.arrow_forward),
+                icon: const Icon(Icons.arrow_forward, size: 16),
                 iconAlignment: IconAlignment.end,
                 label: const Text('Next'),
                 style: FilledButton.styleFrom(
                   backgroundColor: _accent,
                   foregroundColor: Colors.white,
                   textStyle: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  visualDensity: VisualDensity.compact,
                 ),
               ),
             ],
           ],
         ),
       ),
+    );
+  }
+}
+
+class _HintContent extends StatelessWidget {
+  const _HintContent({
+    super.key,
+    required this.hint,
+    required this.number,
+    required this.total,
+  });
+
+  final RecorderHint hint;
+  final int number;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final description = hint.description;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              liveRegion: true,
+              label: 'Hint $number of $total',
+              excludeSemantics: true,
+              child: _HintNumber(number: number),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                hint.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (description != null && description.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1317,15 +1368,15 @@ class _HintNumber extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 26,
-      height: 26,
+      width: 20,
+      height: 20,
       alignment: Alignment.center,
       decoration: const BoxDecoration(color: _accent, shape: BoxShape.circle),
       child: Text(
         '$number',
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 13,
+          fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
       ),
